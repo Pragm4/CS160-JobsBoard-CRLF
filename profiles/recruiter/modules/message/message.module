@@ -1,0 +1,417 @@
+<?php
+// $Id: message.module,v 1.12 2010/06/07 10:54:11 amitaibu Exp $
+
+/**
+ * @file
+ * API functions to manipulate messages.
+ */
+
+/**
+ * Define the name of the message realm field.
+ */
+define('MESSAGE_FIELD_MESSAGE_TEXT', 'message_text');
+
+/**
+ * Implementation of hook_views_api().
+ */
+function message_views_api() {
+  return array(
+    'api' => 2.0,
+    'path' => drupal_get_path('module', 'message') . '/includes',
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function message_permission() {
+  $permissions = array();
+  $permissions['administer message types'] = array(
+    'title' => t('Administer message types'),
+    'description' => t('Administer message types that can be used to log an event.'),
+  );
+  $permissions['create messages'] = array(
+    'title' => t('Create messages'),
+    'description' => t('Log new messages.'),
+  );
+  return $permissions;
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function message_entity_info() {
+  $items['message_type'] = array(
+    'label' => t('Message type'),
+    'controller class' => 'EntityAPIController',
+    'entity class' => 'MessageType',
+    'base table' => 'message_type',
+    'fieldable' => TRUE,
+    'entity keys' => array(
+      'id' => 'id',
+      'label' => 'description',
+      'name' => 'name',
+    ),
+    'exportable' => TRUE,
+    'export' => array(
+      'default hook' => 'default_message_type',
+    ),
+    'bundle of' => 'message',
+    'module' => 'message',
+    'access callback' => 'message_type_access',
+    // Enable the entity API's admin UI.
+    'admin ui' => array(
+      'path' => 'admin/structure/messages',
+      'file' => 'message.admin.inc',
+      'controller class' => 'MessageTypeUIController',
+    ),
+  );
+
+  if (module_exists('locale')) {
+    $items['message_type']['translation']['locale'] = TRUE;
+  }
+
+  $items['message'] = array(
+    'label' => t('Message'),
+    'controller class' => 'EntityAPIController',
+    'entity class' => 'Message',
+    'base table' => 'message',
+    'fieldable' => TRUE,
+    'access callback' => 'message_access',
+    'entity keys' => array(
+      'id' => 'mid',
+      // The message has no label.
+      'label' => FALSE,
+      'bundle' => 'name',
+    ),
+    'bundles' => array(),
+    'bundle keys' => array(
+      'bundle' => 'name',
+    ),
+    'view modes' => array(
+      'full' => array(
+        'label' => t('Full'),
+        'custom settings' => FALSE,
+      ),
+    ),
+    'module' => 'message',
+    'metadata controller class' => 'MessageMetadataController'
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * Use this hook to specify bundles to avoid a recursion, as loading the entity
+ * message types needs the entity info too.
+ */
+function message_entity_info_alter(&$entity_info) {
+  $message_types = entity_load('message_type');
+  foreach ($message_types as $type_name => $type) {
+    $entity_info['message']['bundles'][$type_name] = array(
+      //@todo do we need a short label too?
+      'label' => $type->name,
+      'admin' => array(
+        'path' => 'admin/structure/messages/manage/%message_type',
+        'real path' => 'admin/structure/messages/manage/' . $type->name,
+        'bundle argument' => 4,
+        'access arguments' => array('administer messages'),
+      ),
+    );
+  }
+}
+
+/**
+ * A class used for message types.
+ */
+class MessageType extends Entity {
+
+  public $name;
+  public $description = '';
+  public $argument_keys = array();
+
+  public function __construct($values = array()) {
+    parent::__construct($values, 'message_type');
+  }
+}
+
+/**
+ * Creates a new message type.
+ *
+ * If a message type already exists, an exception will be thrown.
+ *
+ * @return MessageType
+ *   Returns a new message type object.
+ */
+function message_type_create($name, $values = array()) {
+  // Make sure the message type doesn't already exist, to prevent duplicate key
+  // error.
+  if (message_type_load($name)) {
+    throw new Exception('Message type ' . check_plain($name) . ' already exists.');
+  }
+  $values['name'] = $name;
+  $return = entity_create('message_type', $values);
+
+  return $return;
+}
+
+/**
+ * Message type loader.
+ *
+ * @param $type_name
+ *   (optional) The name for this message type. If no type is given all existing
+ *   types are returned.
+ *
+ * @return MessageType
+ *   Returns a fully-loaded message type definition if a type name is passed.
+ *   Else an array containing all types is returned.
+ */
+function message_type_load($name = NULL) {
+  // Replace dashes with underscores so this can be used as menu argument
+  // loader too.
+  $types = entity_load('message_type', isset($name) ? array(strtr($name, array('-' => '_'))) : FALSE);
+  if (isset($name)) {
+    return isset($types[$name]) ? $types[$name] : FALSE;
+  }
+  return $types;
+}
+
+/**
+ * Inserts or updates a message object into the database.
+ *
+ * @param $message
+ *   The message object to be inserted.
+ *
+ * @return
+ *   Failure to write a record will return FALSE. Otherwise SAVED_NEW or
+ *   SAVED_UPDATED is returned depending on the operation performed.
+ */
+function message_type_save($message) {
+  return entity_save('message_type', $message);
+}
+
+/**
+ * Deletes an existing message.
+ *
+ * @param $message
+ *   The message object to be deleted.
+ */
+function message_type_delete($message) {
+  return entity_delete('message_type', $message);
+}
+
+/**
+ * A class used for messages.
+ */
+class Message extends Entity {
+
+  public $name;
+  public $arguments = array();
+  public $timestamp;
+
+  public function __construct($values = array()) {
+    if (isset($values['user'])) {
+      $values['uid'] = $values['user']->uid;
+      unset($values['user']);
+    }
+
+    parent::__construct($values, 'message');
+    if (!isset($this->uid)) {
+      $this->uid = $GLOBALS['user']->uid;
+    }
+    if (!isset($this->timestamp)) {
+      $this->timestamp = time();
+    }
+  }
+
+  /**
+   * Returns the user associated with the message.
+   */
+  public function user() {
+    return user_load($this->uid);
+  }
+
+  /**
+   * Sets a new user associated with the message.
+   *
+   * @param $account
+   *   The user account object or the user account id (uid).
+   */
+  public function setUser($account) {
+    $this->uid = is_object($account) ? $account->uid : $account;
+  }
+
+  /**
+   * Gets the associated message type.
+   *
+   * @return MessageType
+   */
+  public function getType() {
+    return message_type_load($this->name);
+  }
+
+  /**
+   * Generate an array for rendering the entity.
+   *
+   * @see entity_view()
+   */
+  public function view($view_mode = 'full', $langcode = NULL) {
+    $view =  parent::view($view_mode, $langcode);
+
+    $key = !empty($this->is_new) ? 0 : $this->mid;
+    $view['message'][$key]['message_render'] = array(
+      '#markup' => $this->getText($langcode),
+      '#prefix' => '<span class="message message-type-' . str_replace('_', '-', $this->getType()->name) . ' message-id-' . $key . '">',
+      '#suffix' => '</span>',
+    );
+    return $view;
+  }
+
+  /**
+   * Replace arguments with their placeholders.
+   *
+   * @param $langcode
+   *   Optional; The language to get the text in. If not set the current language
+   *   will be used.
+   */
+  function getText($langcode = NULL) {
+    $output = '';
+
+    if (empty($langcode)) {
+      $langcode = LANGUAGE_NONE;
+    }
+
+    $message_type = $this->getType();
+
+    if (!empty($message_type->{MESSAGE_FIELD_MESSAGE_TEXT}[$langcode][0]['value'])) {
+      $output = $message_type->{MESSAGE_FIELD_MESSAGE_TEXT}[$langcode][0]['value'];
+    }
+
+    if (!empty($this->arguments)) {
+      // Transform arguments before inserting them.
+      // FIXME: Check if arguments is array or text, and prepare arguments
+      // accordingly.
+      $args = array();
+      foreach ($this->arguments as $key => $value) {
+
+        if (is_array($value) && !empty($value['callback']) && function_exists($value['callback'])) {
+          // A replacement via callback function.
+          $value = call_user_func_array($value['callback'], $value['callback arguments']);
+        }
+
+        switch ($key[0]) {
+          case '@':
+            // Escaped only.
+            $args[$key] = check_plain($value);
+            break;
+
+          case '%':
+          default:
+            // Escaped and placeholder.
+            $args[$key] = drupal_placeholder($value);
+            break;
+
+          case '!':
+            // Pass-through.
+            $args[$key] = $value;
+        }
+      }
+      $output = strtr($output, $args);
+    }
+    return $output;
+  }
+}
+
+/**
+ * Helper to easily create messages.
+ *
+ * @param $name
+ *   The message type name.
+ * @param $values
+ *   Array with the following keys:
+ *   - "arguments" - Array with arguments that should be replaced on run time in
+ *     the message type.
+ *   - "timestamp" - The unix timestamp of the creation time of the message. If
+ *     empty the current time will be used.
+ * @param $account
+ *   Optional; The user object to associate the message with. If empty, the
+ *   current user will be used.
+ */
+function message_create($name, $values = array(), $account = NULL) {
+  $values['name'] = $name;
+  $values['user'] = $account;
+  return entity_create('message', $values);
+}
+
+/**
+ * Message load.
+ *
+ * @param $mid
+ *   The message ID.
+ * @return Message
+ *   A message object.
+ */
+function message_load($mid) {
+  $result = entity_load('message', array($mid));
+  return $result ? reset($result) : FALSE;
+}
+
+/**
+ * Loads multiple messages.
+ *
+ * @see entity_load().
+ */
+function message_load_multiple($mids, $conditions = array()) {
+  return entity_load('message', $mids, $conditions);
+}
+
+/**
+ * Message save.
+ *
+ * @param $message_instance
+ *   A message instance object.
+ * @return
+ *   The saved message instance object.
+ */
+function message_save($message) {
+  return entity_save('message', $message);
+}
+
+/**
+ * Message delete.
+ *
+ * @param $iid
+ *   Message instance IDs array.
+ */
+function message_delete_multiple($mids = array()) {
+  entity_delete_multiple('message', $mids);
+}
+
+/**
+ * Access callback for the message entity.
+ */
+function message_access($op, $entity, $account = NULL, $entity_type = 'message') {
+  return user_access('create messages');
+}
+
+/**
+ * Access callback for the message type entities.
+ */
+function message_type_access($op, $entity, $account, $entity_type) {
+  return user_access('administer message types', $account);
+}
+
+/**
+ * Entity property info getter callback for getting arguments.
+ */
+function message_property_get_argument($arguments, array $options, $name, $type, $context) {
+  return isset($arguments[$context['message_replace_char'] . $name]) ? $arguments[$context['message_replace_char'] . $name] : NULL;
+}
+
+/**
+ * Entity property info setter callback for arguments.
+ */
+function message_property_set_argument(&$arguments, $name, $value, $langcode, $type, $context) {
+  $arguments[$context['message_replace_char'] . $name] = $value;
+}

@@ -1,0 +1,6 @@
+name = Taxonomy Manager
+description = Tool for administrating taxonomy terms.
+core = "7.x"
+dependencies[] = taxonomy
+files[] = taxonomy_manager.admin.inc
+package = Taxonomy

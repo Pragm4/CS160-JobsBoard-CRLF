@@ -1,0 +1,19 @@
+; $Id: message.info,v 1.3 2010/06/07 10:54:11 amitaibu Exp $
+name = Message
+description = "A general message logging utility."
+core = 7.x
+package = Message
+dependencies[] = entity
+
+files[] = message.info.inc
+files[] = message.admin.inc
+
+; Tests
+files[] = message.test
+
+; Views fields
+files[] = includes/views/message_handler_field_message_render.inc
+
+; 3rd party includes
+files[] = includes/message.views.inc
+files[] = includes/message.views_default.inc

@@ -1,0 +1,8 @@
+name = Autocomplete Deluxe
+description = Enhanced autocomplete using Jquery UI autocomplete. 
+package = CCK
+version = VERSION
+core = 7.x
+files[] = autocomplete_deluxe.module
+dependencies[] = options
+dependencies[] = taxonomy

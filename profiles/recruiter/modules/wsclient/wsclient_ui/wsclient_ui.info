@@ -1,0 +1,7 @@
+name = Web service client UI
+description = Provides a user interface to administer web service descriptions.
+package = Services
+core = 7.x
+files[] = wsclient_ui.module
+dependencies[] = wsclient
+dependencies[] = rules

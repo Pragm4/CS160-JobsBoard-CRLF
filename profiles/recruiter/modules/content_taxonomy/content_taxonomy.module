@@ -1,0 +1,32 @@
+<?php
+
+/**
+ * Implements hook_form_ID_alter().
+ */
+function content_taxonomy_form_field_ui_field_edit_form_alter(&$form, &$form_state, $form_id) {
+  $field = $form['#field'];
+  $instance = $form['#instance'];
+
+  // Add parent selctor to term reference fields,
+  // except to the autocomplete widget, as it ignores the parent setting.
+  if ($field['type'] == 'taxonomy_term_reference'
+    && !($instance['widget']['type'] == 'taxonomy_autocomplete' || $instance['widget']['type'] == 'autocomplete_deluxe_taxonomy')) {
+
+    // add parent form.
+    foreach ($field['settings']['allowed_values'] as $delta => $tree) {
+      $options[0] = '---';
+      // todo this might break with huge vocs
+      $voc = taxonomy_vocabulary_machine_name_load($tree['vocabulary']);
+      foreach (taxonomy_get_tree($voc->vid) as $term) {
+        $options[$term->tid] = str_repeat('- ', $term->depth) . $term->name;
+      }
+
+      $form['field']['settings']['allowed_values'][$delta]['parent']  = array(
+        '#type' => 'select',
+        '#title' => t('Parent'),
+        '#options' => $options,
+        '#default_value' => isset($tree['parent']) ? $tree['parent'] : 0,
+      );
+    } 
+  }
+}

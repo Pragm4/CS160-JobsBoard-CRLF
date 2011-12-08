@@ -1,0 +1,15 @@
+@CHARSET "UTF-8";
+
+/* Theme the button */
+span.autocomplete-deluxe-button {
+  /*top: 8px;*/
+  top: 0.6em;
+  height: 1.75em;
+  overflow: hidden;
+  outline: none;
+}
+
+ul.ui-autocomplete {
+  overflow: scroll;
+  max-height: 250px;
+}
